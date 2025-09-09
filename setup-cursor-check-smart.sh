@@ -226,9 +226,9 @@ if echo "$STAGED_FILES" | grep -E '\\.dart$' > /dev/null; then
     
     ANALYZE_CMD=""
     if command -v flutter &> /dev/null; then
-        ANALYZE_CMD="flutter analyze"
+        ANALYZE_CMD="flutter analyze --fatal-infos --fatal-warnings"
     elif command -v dart &> /dev/null; then
-        ANALYZE_CMD="dart analyze"
+        ANALYZE_CMD="dart analyze --fatal-infos --fatal-warnings"
     fi
 
     if [ -n "$ANALYZE_CMD" ]; then
