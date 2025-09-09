@@ -88,7 +88,9 @@ else
 fi
 
 # Cursor 检查代码
-CURSOR_CHECK_CODE='#!/bin/bash
+write_cursor_code() {
+cat <<'HOOK'
+#!/bin/bash
 
 # Cursor 代码检查功能
 # 检查是否为 Mac 系统
@@ -116,6 +118,216 @@ fi
 
 echo "📝 检查以下文件:"
 echo "$STAGED_FILES"
+
+# 项目级别分析（根据暂存文件类型运行相应的项目检查）
+
+# JavaScript/TypeScript 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.(js|ts|jsx|tsx)$' > /dev/null; then
+    echo "  - 运行 JavaScript/TypeScript 项目检查..."
+    
+    # 检查 package.json 是否存在
+    if [ -f "package.json" ]; then
+        if command -v npm &> /dev/null; then
+            echo "    - 运行 npm 检查..."
+            TEMP_NPM_OUT=$(mktemp)
+            if ! npm run lint 2> "$TEMP_NPM_OUT" 2>/dev/null; then
+                echo "      ⚠️ npm lint 未配置或失败，跳过"
+            else
+                echo "      ✅ npm lint 通过"
+            fi
+            rm -f "$TEMP_NPM_OUT"
+        fi
+        
+        # TypeScript 项目检查
+        if [ -f "tsconfig.json" ] && command -v tsc &> /dev/null; then
+            echo "    - 运行 TypeScript 全量检查..."
+            TEMP_TS_OUT=$(mktemp)
+            if ! tsc --noEmit > "$TEMP_TS_OUT" 2>&1; then
+                echo "      ❌ TypeScript 项目检查发现问题"
+                echo "[TypeScript Project Check]" >> "$ERROR_FILE"
+                cat "$TEMP_TS_OUT" >> "$ERROR_FILE"
+            else
+                echo "      ✅ TypeScript 项目检查通过"
+            fi
+            rm -f "$TEMP_TS_OUT"
+        fi
+    else
+        echo "    ⚠️ 未找到 package.json，跳过项目检查"
+    fi
+fi
+
+# Python 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.py$' > /dev/null; then
+    echo "  - 运行 Python 项目检查..."
+    
+    if command -v python3 &> /dev/null; then
+        # 检查是否有 requirements.txt 或 pyproject.toml
+        if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
+            echo "    - 运行 Python 项目语法检查..."
+            TEMP_PY_OUT=$(mktemp)
+            if ! python3 -m py_compile $(find . -name "*.py" -not -path "./.git/*" -not -path "./venv/*" -not -path "./env/*") > "$TEMP_PY_OUT" 2>&1; then
+                echo "      ❌ Python 项目检查发现问题"
+                echo "[Python Project Check]" >> "$ERROR_FILE"
+                cat "$TEMP_PY_OUT" >> "$ERROR_FILE"
+            else
+                echo "      ✅ Python 项目检查通过"
+            fi
+            rm -f "$TEMP_PY_OUT"
+        else
+            echo "    ⚠️ 未找到 Python 项目文件，跳过项目检查"
+        fi
+    else
+        echo "    ⚠️ 跳过 Python 项目检查 (未安装 Python3)"
+    fi
+fi
+
+# Java 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.java$' > /dev/null; then
+    echo "  - 运行 Java 项目检查..."
+    
+    if command -v javac &> /dev/null; then
+        # 检查是否有 Maven 或 Gradle 项目
+        if [ -f "pom.xml" ] || [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "    - 运行 Java 项目编译检查..."
+            TEMP_JAVA_OUT=$(mktemp)
+            if [ -f "pom.xml" ] && command -v mvn &> /dev/null; then
+                if ! mvn compile -q > "$TEMP_JAVA_OUT" 2>&1; then
+                    echo "      ❌ Maven 编译发现问题"
+                    echo "[Java Maven Check]" >> "$ERROR_FILE"
+                    cat "$TEMP_JAVA_OUT" >> "$ERROR_FILE"
+                else
+                    echo "      ✅ Maven 编译通过"
+                fi
+            elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+                if command -v gradle &> /dev/null; then
+                    if ! gradle compileJava -q > "$TEMP_JAVA_OUT" 2>&1; then
+                        echo "      ❌ Gradle 编译发现问题"
+                        echo "[Java Gradle Check]" >> "$ERROR_FILE"
+                        cat "$TEMP_JAVA_OUT" >> "$ERROR_FILE"
+                    else
+                        echo "      ✅ Gradle 编译通过"
+                    fi
+                else
+                    echo "      ⚠️ 未安装 Gradle，跳过项目检查"
+                fi
+            fi
+            rm -f "$TEMP_JAVA_OUT"
+        else
+            echo "    ⚠️ 未找到 Maven/Gradle 项目文件，跳过项目检查"
+        fi
+    else
+        echo "    ⚠️ 跳过 Java 项目检查 (未安装 JDK)"
+    fi
+fi
+
+# Dart/Flutter 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.dart$' > /dev/null; then
+    echo "  - 运行 Dart/Flutter 项目检查..."
+    
+    ANALYZE_CMD=""
+    if command -v flutter &> /dev/null; then
+        ANALYZE_CMD="flutter analyze"
+    elif command -v dart &> /dev/null; then
+        ANALYZE_CMD="dart analyze"
+    fi
+
+    if [ -n "$ANALYZE_CMD" ]; then
+        TEMP_ANALYZE_OUT=$(mktemp)
+        if ! eval $ANALYZE_CMD > "$TEMP_ANALYZE_OUT" 2>&1; then
+            echo "    ❌ Dart/Flutter 分析发现问题"
+            echo "[Dart/Flutter Analyze Output]" >> "$ERROR_FILE"
+            cat "$TEMP_ANALYZE_OUT" >> "$ERROR_FILE"
+        else
+            echo "    ✅ Dart/Flutter 分析通过"
+        fi
+        rm -f "$TEMP_ANALYZE_OUT"
+    else
+        echo "    ⚠️ 跳过 Dart 分析 (未安装 Dart/Flutter)"
+    fi
+fi
+
+# Swift 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.swift$' > /dev/null; then
+    echo "  - 运行 Swift 项目检查..."
+    
+    if command -v swiftc &> /dev/null; then
+        # 检查是否有 Package.swift 或 .xcodeproj
+        if [ -f "Package.swift" ] || find . -name "*.xcodeproj" -o -name "*.xcworkspace" | grep -q .; then
+            echo "    - 运行 Swift 项目编译检查..."
+            TEMP_SWIFT_OUT=$(mktemp)
+            if [ -f "Package.swift" ]; then
+                if ! swift build > "$TEMP_SWIFT_OUT" 2>&1; then
+                    echo "      ❌ Swift Package 编译发现问题"
+                    echo "[Swift Package Check]" >> "$ERROR_FILE"
+                    cat "$TEMP_SWIFT_OUT" >> "$ERROR_FILE"
+                else
+                    echo "      ✅ Swift Package 编译通过"
+                fi
+            else
+                echo "      ⚠️ Xcode 项目需要手动检查"
+            fi
+            rm -f "$TEMP_SWIFT_OUT"
+        else
+            echo "    ⚠️ 未找到 Swift 项目文件，跳过项目检查"
+        fi
+    else
+        echo "    ⚠️ 跳过 Swift 项目检查 (未安装 Swift)"
+    fi
+fi
+
+# Kotlin 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.kt$' > /dev/null; then
+    echo "  - 运行 Kotlin 项目检查..."
+    
+    if command -v kotlinc &> /dev/null; then
+        # 检查是否有 Gradle 项目
+        if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            echo "    - 运行 Kotlin 项目编译检查..."
+            TEMP_KOTLIN_OUT=$(mktemp)
+            if command -v gradle &> /dev/null; then
+                if ! gradle compileKotlin -q > "$TEMP_KOTLIN_OUT" 2>&1; then
+                    echo "      ❌ Kotlin 编译发现问题"
+                    echo "[Kotlin Gradle Check]" >> "$ERROR_FILE"
+                    cat "$TEMP_KOTLIN_OUT" >> "$ERROR_FILE"
+                else
+                    echo "      ✅ Kotlin 编译通过"
+                fi
+            else
+                echo "      ⚠️ 未安装 Gradle，跳过项目检查"
+            fi
+            rm -f "$TEMP_KOTLIN_OUT"
+        else
+            echo "    ⚠️ 未找到 Gradle 项目文件，跳过项目检查"
+        fi
+    else
+        echo "    ⚠️ 跳过 Kotlin 项目检查 (未安装 Kotlin)"
+    fi
+fi
+
+# Go 项目检查
+if echo "$STAGED_FILES" | grep -E '\\.go$' > /dev/null; then
+    echo "  - 运行 Go 项目检查..."
+    
+    if command -v go &> /dev/null; then
+        # 检查是否有 go.mod
+        if [ -f "go.mod" ]; then
+            echo "    - 运行 Go 项目检查..."
+            TEMP_GO_OUT=$(mktemp)
+            if ! go build ./... > "$TEMP_GO_OUT" 2>&1; then
+                echo "      ❌ Go 项目编译发现问题"
+                echo "[Go Project Check]" >> "$ERROR_FILE"
+                cat "$TEMP_GO_OUT" >> "$ERROR_FILE"
+            else
+                echo "      ✅ Go 项目编译通过"
+            fi
+            rm -f "$TEMP_GO_OUT"
+        else
+            echo "    ⚠️ 未找到 go.mod，跳过项目检查"
+        fi
+    else
+        echo "    ⚠️ 跳过 Go 项目检查 (未安装 Go)"
+    fi
+fi
 
 # 检查 Cursor 是否安装
 CURSOR_CMD=""
@@ -315,23 +527,25 @@ if [ -f ".git/hooks/pre-commit" ] && grep -q "现有检查\|原有.*hook" .git/h
     echo "🔄 继续执行其他检查..."
 else
     exit 0
-fi'
+fi
+HOOK
+}
 
 if [ "$create_new_hook" = true ]; then
     # 创建新的 hook
-    echo "$CURSOR_CHECK_CODE" > .git/hooks/pre-commit
+    write_cursor_code > .git/hooks/pre-commit
 else
     # 添加到现有 hook
     if [ "$add_position" = "beginning" ]; then
         # 在开头添加
-        echo "$CURSOR_CHECK_CODE" > .git/hooks/pre-commit.tmp
+        write_cursor_code > .git/hooks/pre-commit.tmp
         echo "" >> .git/hooks/pre-commit.tmp
         cat .git/hooks/pre-commit >> .git/hooks/pre-commit.tmp
         mv .git/hooks/pre-commit.tmp .git/hooks/pre-commit
     else
         # 在结尾添加
         echo "" >> .git/hooks/pre-commit
-        echo "$CURSOR_CHECK_CODE" >> .git/hooks/pre-commit
+        write_cursor_code >> .git/hooks/pre-commit
     fi
 fi
 
